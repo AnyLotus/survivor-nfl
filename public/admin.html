@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — NFL Survivor</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo">🏈 NFL <span>Survivor</span></div>
+    <div class="nav-links">
+      <a href="/dashboard.html">Liga</a>
+      <a href="/pick.html">Mi Pick</a>
+      <a href="/history.html">Historial</a>
+      <a href="/chat.html">Chat</a>
+      <a href="/admin.html" class="active">Admin</a>
+    </div>
+    <div class="nav-user">
+      <span class="admin-badge">ADMIN</span>
+      <span id="nav-name">…</span>
+      <button onclick="logout()">Salir</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div id="loading" class="loading"><div class="spinner"></div>Cargando panel…</div>
+    <div id="content" style="display:none;">
+
+      <div class="page-title">⚙️ Panel de Admin</div>
+
+      <!-- Semana activa -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><span class="card-title">🗓 Control de semana</span></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div>
+            <div style="font-size:11px;color:var(--muted2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;">Semana activa</div>
+            <select id="week-select" class="input" style="width:160px;">
+              <option value="">Cargando…</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:20px;">
+            <button class="btn btn-primary" onclick="activateWeek()">Activar semana</button>
+            <button class="btn btn-secondary" onclick="toggleLock()">🔒 Bloquear/Abrir picks</button>
+          </div>
+        </div>
+        <div id="week-status" style="margin-top:12px;font-size:13px;color:var(--muted2);"></div>
+      </div>
+
+      <!-- Jugadores -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <span class="card-title">👥 Jugadores (<span id="player-count">0</span>)</span>
+          <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;" onclick="loadPlayers()">↻ Actualizar</button>
+        </div>
+        <div id="players-list"></div>
+      </div>
+
+      <!-- Zona de peligro -->
+      <div class="danger-zone">
+        <div class="card-header"><span class="card-title" style="color:var(--dead);">⚠️ Zona de peligro</span></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-danger" onclick="resetAllPicks()">Borrar todos los picks de la semana</button>
+          <button class="btn btn-danger" onclick="syncScores()">🔄 Sincronizar resultados ESPN</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script>
+    let activeWeek = null;
+
+    async function init() {
+      const user = await requireAuth();
+      if (!user) return;
+
+      const { data: player } = await sb.from('players').select('display_name, is_admin').eq('user_id', user.id).single();
+      if (!player?.is_admin) {
+        window.location.href = '/dashboard.html';
+        return;
+      }
+      document.getElementById('nav-name').textContent = player.display_name;
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = '';
+
+      await loadWeeks();
+      await loadPlayers();
+    }
+
+    async function loadWeeks() {
+      const { data: weeks } = await sb.from('weeks').select('*').order('week_number');
+      const select = document.getElementById('week-select');
+      select.innerHTML = (weeks || []).map(w =>
+        `<option value="${w.id}" ${w.is_active ? 'selected' : ''}>${w.is_active ? '▶ ' : ''}Semana ${w.week_number} ${w.is_locked ? '🔒' : ''}</option>`
+      ).join('');
+      activeWeek = weeks?.find(w => w.is_active);
+      updateWeekStatus();
+    }
+
+    function updateWeekStatus() {
+      const el = document.getElementById('week-status');
+      if (!activeWeek) { el.textContent = 'No hay semana activa'; return; }
+      el.innerHTML = `Semana ${activeWeek.week_number} activa — Picks: <strong style="color:${activeWeek.is_locked ? 'var(--dead)' : 'var(--alive)'}">${activeWeek.is_locked ? '🔒 CERRADOS' : '🔓 ABIERTOS'}</strong>`;
+    }
+
+    async function activateWeek() {
+      const weekId = document.getElementById('week-select').value;
+      if (!weekId) return;
+      await sb.from('weeks').update({ is_active: false }).neq('id', 0);
+      await sb.from('weeks').update({ is_active: true }).eq('id', weekId);
+      toast('✅ Semana activada', 'success');
+      await loadWeeks();
+    }
+
+    async function toggleLock() {
+      if (!activeWeek) return toast('No hay semana activa', 'error');
+      const newLock = !activeWeek.is_locked;
+      await sb.from('weeks').update({ is_locked: newLock }).eq('id', activeWeek.id);
+      activeWeek.is_locked = newLock;
+      toast(newLock ? '🔒 Picks bloqueados' : '🔓 Picks abiertos', 'success');
+      updateWeekStatus();
+      await loadWeeks();
+    }
+
+    async function loadPlayers() {
+      const { data: players } = await sb
+        .from('players')
+        .select('id, display_name, is_alive, is_admin, eliminated_week, total_correct, user_id')
+        .order('is_alive', { ascending: false })
+        .order('display_name');
+
+      document.getElementById('player-count').textContent = players?.length || 0;
+
+      document.getElementById('players-list').innerHTML = (players || []).map(p => `
+        <div class="player-row">
+          <div class="player-avatar">${p.display_name[0].toUpperCase()}</div>
+          <div class="player-name ${p.is_alive ? '' : 'eliminated'}" style="flex:1;">${p.display_name}</div>
+          ${p.is_admin ? '<span class="admin-badge">ADMIN</span>' : ''}
+          <span class="status-pill ${p.is_alive ? 'status-alive' : 'status-dead'}">${p.is_alive ? '🟢 VIVO' : `💀 S${p.eliminated_week || '?'}`}</span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="toggleAlive('${p.id}', ${p.is_alive})">
+              ${p.is_alive ? 'Eliminar' : 'Revivir'}
+            </button>
+            <button class="btn btn-danger" style="font-size:11px;padding:4px 10px;" onclick="deletePlayer('${p.id}', '${p.display_name}')">
+              Borrar
+            </button>
+          </div>
+        </div>`).join('');
+    }
+
+    async function toggleAlive(playerId, isAlive) {
+      await sb.from('players').update({ is_alive: !isAlive, eliminated_week: isAlive ? activeWeek?.week_number : null }).eq('id', playerId);
+      toast(isAlive ? '💀 Jugador eliminado' : '✅ Jugador revivido', 'success');
+      await loadPlayers();
+    }
+
+    async function deletePlayer(playerId, name) {
+      if (!confirm(`¿Borrar a ${name}? Esta acción no se puede deshacer.`)) return;
+      await sb.from('picks').delete().eq('player_id', playerId);
+      await sb.from('chat_messages').delete().eq('player_id', playerId);
+      await sb.from('players').delete().eq('id', playerId);
+      toast(`🗑 ${name} eliminado`, 'success');
+      await loadPlayers();
+    }
+
+    async function resetAllPicks() {
+      if (!activeWeek) return toast('No hay semana activa', 'error');
+      if (!confirm(`¿Borrar TODOS los picks de la semana ${activeWeek.week_number}? No se puede deshacer.`)) return;
+      await sb.from('picks').delete().eq('week_id', activeWeek.id);
+      toast('🗑 Picks de la semana borrados', 'success');
+    }
+
+    async function syncScores() {
+      const btn = event.target;
+      btn.disabled = true; btn.textContent = 'Sincronizando…';
+      try {
+        const res = await apiFetch('/sync-scores');
+        toast(`✅ ${res.gamesUpdated || 0} partidos actualizados`, 'success');
+      } catch(e) {
+        toast('Error al sincronizar', 'error');
+      }
+      btn.disabled = false; btn.textContent = '🔄 Sincronizar resultados ESPN';
+    }
+
+    async function logout() {
+      await sb.auth.signOut();
+      window.location.href = '/index.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>
