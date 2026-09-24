@@ -1,22 +1,22 @@
 // netlify/functions/sync-scores.js
-// Sincroniza resultados desde la API pública de ESPN
-// Llámala con un cron job en Netlify o manualmente
-
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY // service key para operaciones admin
+  process.env.SUPABASE_SERVICE_KEY
 );
 
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json',
   };
 
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+
   try {
-    // Obtener semana activa
+    // Semana activa
     const { data: activeWeek } = await supabase
       .from('weeks')
       .select('*')
@@ -24,16 +24,17 @@ exports.handler = async (event) => {
       .single();
 
     if (!activeWeek) {
-      return { statusCode: 200, headers, body: JSON.stringify({ message: 'No active week' }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ message: 'No hay semana activa' }) };
     }
 
-    // Llamar a ESPN API (pública, sin API key)
-    const espnUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${activeWeek.week_number}&seasontype=2&dates=${activeWeek.season}`;
+    // ESPN API
+    const espnUrl = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${activeWeek.week_number}`;
     const response = await fetch(espnUrl);
     const espnData = await response.json();
-
     const events = espnData.events || [];
-    const updates = [];
+
+    let gamesUpdated = 0;
+    let picksEvaluated = 0;
 
     for (const event of events) {
       const competition = event.competitions?.[0];
@@ -41,32 +42,21 @@ exports.handler = async (event) => {
 
       const homeTeamData = competition.competitors?.find(c => c.homeAway === 'home');
       const awayTeamData = competition.competitors?.find(c => c.homeAway === 'away');
-
       if (!homeTeamData || !awayTeamData) continue;
 
-      const homeAbbr = homeTeamData.team?.abbreviation;
-      const awayAbbr = awayTeamData.team?.abbreviation;
+      const homeAbbr  = homeTeamData.team?.abbreviation;
+      const awayAbbr  = awayTeamData.team?.abbreviation;
       const homeScore = parseInt(homeTeamData.score) || null;
       const awayScore = parseInt(awayTeamData.score) || null;
       const statusType = event.status?.type?.name;
 
       let gameStatus = 'scheduled';
-      if (statusType === 'STATUS_IN_PROGRESS') gameStatus = 'live';
+      if (statusType === 'STATUS_IN_PROGRESS' || statusType === 'STATUS_HALFTIME') gameStatus = 'live';
       if (statusType === 'STATUS_FINAL') gameStatus = 'final';
 
-      // Buscar equipos en nuestra DB
-      const { data: homeTeam } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('abbreviation', homeAbbr)
-        .single();
-
-      const { data: awayTeam } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('abbreviation', awayAbbr)
-        .single();
-
+      // Buscar equipos
+      const { data: homeTeam } = await supabase.from('teams').select('id').eq('abbreviation', homeAbbr).single();
+      const { data: awayTeam } = await supabase.from('teams').select('id').eq('abbreviation', awayAbbr).single();
       if (!homeTeam || !awayTeam) continue;
 
       // Upsert partido
@@ -85,36 +75,46 @@ exports.handler = async (event) => {
         .select()
         .single();
 
-      // Si el partido terminó, evaluar picks
-      if (gameStatus === 'final' && game) {
-        await evaluatePicks(game, homeTeam.id, awayTeam.id, homeScore, awayScore, activeWeek.id);
-      }
+      gamesUpdated++;
 
-      updates.push({ home: homeAbbr, away: awayAbbr, status: gameStatus });
+      // Si el partido terminó, evaluar picks
+      if (gameStatus === 'final' && game && homeScore !== null && awayScore !== null) {
+        const evaluated = await evaluatePicks(game.id, homeTeam.id, awayTeam.id, homeScore, awayScore, activeWeek.id);
+        picksEvaluated += evaluated;
+      }
     }
 
-    // Verificar eliminaciones
-    await checkEliminations(activeWeek);
+    // Verificar si todos los partidos terminaron → eliminar sin pick
+    const { data: allGames } = await supabase.from('games').select('status').eq('week_id', activeWeek.id);
+    const allDone = allGames?.length > 0 && allGames.every(g => g.status === 'final');
+
+    let eliminated = 0;
+    if (allDone) {
+      eliminated = await eliminateNoPick(activeWeek);
+    }
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ success: true, gamesUpdated: updates.length, updates }),
+      body: JSON.stringify({
+        success: true,
+        gamesUpdated,
+        picksEvaluated,
+        allGamesDone: allDone,
+        eliminatedNoPick: eliminated,
+        weekNumber: activeWeek.week_number,
+      }),
     };
   } catch (error) {
     console.error('Sync error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: error.message }),
-    };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: error.message }) };
   }
 };
 
-async function evaluatePicks(game, homeTeamId, awayTeamId, homeScore, awayScore, weekId) {
-  const winnerTeamId = homeScore > awayScore ? homeTeamId : awayTeamId;
+async function evaluatePicks(gameId, homeTeamId, awayTeamId, homeScore, awayScore, weekId) {
+  const winnerTeamId = homeScore > awayScore ? homeTeamId : (awayScore > homeScore ? awayTeamId : null);
+  if (!winnerTeamId) return 0; // empate (no existe en NFL pero por si acaso)
 
-  // Picks de esta semana para estos equipos
   const { data: picks } = await supabase
     .from('picks')
     .select('id, player_id, team_id')
@@ -124,43 +124,40 @@ async function evaluatePicks(game, homeTeamId, awayTeamId, homeScore, awayScore,
 
   for (const pick of picks || []) {
     const isCorrect = pick.team_id === winnerTeamId;
+    await supabase.from('picks').update({ is_correct: isCorrect }).eq('id', pick.id);
 
-    await supabase
-      .from('picks')
-      .update({ is_correct: isCorrect })
-      .eq('id', pick.id);
-
-    if (isCorrect) {
-      await supabase.rpc('increment_correct', { player_id: pick.player_id });
+    // Si perdió → eliminar jugador
+    if (!isCorrect) {
+      await supabase.from('players').update({
+        is_alive: false,
+        eliminated_week: (await supabase.from('weeks').select('week_number').eq('id', weekId).single()).data?.week_number
+      }).eq('id', pick.player_id);
+    } else {
+      // Si ganó → sumar correcto
+      await supabase.rpc('increment_correct', { player_id: pick.player_id }).catch(() => {});
     }
   }
+
+  return (picks || []).length;
 }
 
-async function checkEliminations(week) {
-  // Jugadores vivos sin pick esta semana → eliminados
-  const { data: alivePlayers } = await supabase
-    .from('players')
-    .select('id')
-    .eq('is_alive', true);
-
-  const { data: weekPicks } = await supabase
-    .from('picks')
-    .select('player_id')
-    .eq('week_id', week.id);
+async function eliminateNoPick(activeWeek) {
+  // Jugadores vivos sin pick esta semana → eliminar
+  const { data: alivePlayers } = await supabase.from('players').select('id').eq('is_alive', true);
+  const { data: weekPicks } = await supabase.from('picks').select('player_id').eq('week_id', activeWeek.id);
 
   const playersWithPick = new Set((weekPicks || []).map(p => p.player_id));
+  let count = 0;
 
-  // Jugadores vivos con pick incorrecto → eliminar
-  const { data: wrongPicks } = await supabase
-    .from('picks')
-    .select('player_id')
-    .eq('week_id', week.id)
-    .eq('is_correct', false);
-
-  for (const pick of wrongPicks || []) {
-    await supabase
-      .from('players')
-      .update({ is_alive: false, eliminated_week: week.week_number })
-      .eq('id', pick.player_id);
+  for (const player of alivePlayers || []) {
+    if (!playersWithPick.has(player.id)) {
+      await supabase.from('players').update({
+        is_alive: false,
+        eliminated_week: activeWeek.week_number
+      }).eq('id', player.id);
+      count++;
+    }
   }
+
+  return count;
 }
