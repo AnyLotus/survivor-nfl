@@ -1,7 +1,7 @@
 // public/js/config.js
 // ⚠️  Reemplaza estos valores con los de tu proyecto Supabase
-const SUPABASE_URL = 'https://TU_PROYECTO.supabase.co';
-const SUPABASE_ANON_KEY = 'TU_ANON_KEY';
+const SUPABASE_URL = 'https://fjzdmeljgmhpeshcchtl.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZqemRtZWxqZ21ocGVzaGNjaHRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAyNjk5MjMsImV4cCI6MjEwNTg0NTkyM30.GFDiJHZDA7p0mv_WSQRUx56q8-ZzlwdL1AulHdeX6gs';
 const API_BASE = '/api';
 
 // Cliente Supabase (para auth en el frontend)
