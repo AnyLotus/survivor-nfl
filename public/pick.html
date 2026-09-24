@@ -25,34 +25,51 @@
     <div id="loading" class="loading"><div class="spinner"></div>Cargando equipos…</div>
     <div id="content" style="display:none;">
 
-      <div id="eliminated-msg" style="display:none;" class="card" style="text-align:center;">
-        <p style="font-size:24px; margin-bottom:8px;">💀</p>
-        <p style="font-size:18px; font-weight:600; margin-bottom:4px;">Estás eliminado</p>
-        <p style="color:var(--muted);">Ya no puedes hacer picks esta temporada.</p>
+      <div id="eliminated-msg" style="display:none;" class="card" style="text-align:center;padding:40px;">
+        <p style="font-size:32px;margin-bottom:8px;">💀</p>
+        <p style="font-size:18px;font-weight:700;color:var(--dead);">Eliminado</p>
+        <p style="color:var(--muted2);margin-top:4px;">Ya no puedes hacer picks esta temporada.</p>
       </div>
 
       <div id="pick-section">
         <div class="week-banner">
           <div>
-            <div class="week-label">Haciendo pick para</div>
+            <div class="week-label">Semana activa</div>
             <div class="week-num" id="week-num">—</div>
           </div>
           <div id="current-pick-display" style="text-align:right;"></div>
         </div>
 
-        <div id="locked-msg" style="display:none;" class="card" style="margin-bottom:16px;">
-          <p style="color:var(--accent2); font-weight:600;">🔒 Los picks están cerrados para esta semana</p>
+        <!-- Pick ya confirmado -->
+        <div id="pick-confirmed-msg" style="display:none;" class="card" style="margin-bottom:14px;border-color:rgba(0,255,136,.25);">
+          <p style="color:var(--alive);font-weight:600;font-size:14px;">✅ Pick confirmado para esta semana</p>
+          <p style="color:var(--muted2);font-size:13px;margin-top:4px;">Una vez confirmado no puedes cambiarlo. ¡Suerte!</p>
+        </div>
+
+        <!-- Semana bloqueada por admin -->
+        <div id="locked-msg" style="display:none;" class="card" style="margin-bottom:14px;border-color:rgba(255,149,0,.25);">
+          <p style="color:var(--accent2);font-weight:600;font-size:14px;">🔒 Los picks están cerrados para esta semana</p>
+        </div>
+
+        <!-- Sin partidos cargados -->
+        <div id="no-games-msg" style="display:none;" class="card" style="margin-bottom:14px;border-color:rgba(0,245,255,.15);">
+          <p style="color:var(--neon);font-weight:600;font-size:14px;">ℹ️ Sin partidos cargados aún</p>
+          <p style="color:var(--muted2);font-size:13px;margin-top:4px;">El admin debe sincronizar los partidos de la semana. Mientras tanto puedes elegir cualquier equipo disponible.</p>
         </div>
 
         <div class="card">
           <div class="card-header">
             <span class="card-title">Elige tu equipo</span>
-            <span style="font-size:13px;color:var(--muted);" id="pick-hint">Los equipos grises ya los usaste</span>
+            <div style="display:flex;gap:12px;font-size:12px;color:var(--muted2);">
+              <span>⬜ Disponible</span>
+              <span style="color:var(--dead);">🔴 Ya jugó</span>
+              <span style="opacity:.3;">⬛ Ya usaste</span>
+            </div>
           </div>
           <div class="team-grid" id="team-grid"></div>
-          <div style="margin-top:20px;display:flex;gap:10px;align-items:center;" id="confirm-row" style="display:none;">
+          <div style="margin-top:18px;display:flex;gap:10px;align-items:center;" id="confirm-row">
             <button class="btn btn-primary" id="confirm-btn" onclick="confirmPick()" disabled>Confirmar pick</button>
-            <span id="selected-label" style="color:var(--muted);font-size:14px;"></span>
+            <span id="selected-label" style="color:var(--muted2);font-size:13px;"></span>
           </div>
         </div>
       </div>
@@ -64,7 +81,23 @@
   <script>
     let selectedTeam = null;
     let currentPickTeamId = null;
+    let pickAlreadyConfirmed = false;
     let weekLocked = false;
+    let lockedTeamIds = [];
+
+    function teamLogo(abbr) {
+      const map = {
+        'ARI':'crd','ATL':'atl','BAL':'rav','BUF':'buf','CAR':'car',
+        'CHI':'chi','CIN':'cin','CLE':'cle','DAL':'dal','DEN':'den',
+        'DET':'det','GB':'gnb','HOU':'htx','IND':'clt','JAX':'jax',
+        'KC':'kan','LV':'rai','LAC':'sdg','LAR':'ram','MIA':'mia',
+        'MIN':'min','NE':'nwe','NO':'nor','NYG':'nyg','NYJ':'nyj',
+        'PHI':'phi','PIT':'pit','SF':'sfo','SEA':'sea','TB':'tam',
+        'TEN':'oti','WSH':'was'
+      };
+      const code = map[abbr] || abbr.toLowerCase();
+      return `https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`;
+    }
 
     async function init() {
       const user = await requireAuth();
@@ -82,19 +115,25 @@
         return;
       }
 
-      const data = await apiFetch('/dashboard');
+      const token = await getToken();
+      const data = await apiFetch('/dashboard', { headers: { Authorization: `Bearer ${token}` } });
 
       if (!data.activeWeek) {
-        document.getElementById('pick-section').innerHTML = '<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No hay semana activa. ¡Vuelve pronto!</p></div>';
+        document.getElementById('pick-section').innerHTML = '<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted2);">No hay semana activa. ¡Vuelve pronto!</p></div>';
         return;
       }
 
       weekLocked = data.activeWeek.is_locked;
-      document.getElementById('week-num').textContent = data.activeWeek.week_number;
+      lockedTeamIds = data.lockedTeamIds || [];
 
+      document.getElementById('week-num').textContent = data.activeWeek.week_number;
       if (weekLocked) document.getElementById('locked-msg').style.display = '';
 
-      // Pick actual de esta semana
+      // Sin partidos cargados aún
+      const hasGames = (data.activeWeek.games || []).length > 0;
+      if (!hasGames) document.getElementById('no-games-msg').style.display = '';
+
+      // Pick actual
       const { data: currentPick } = await sb
         .from('picks')
         .select('team_id, team:teams(name, abbreviation, primary_color), is_correct')
@@ -104,41 +143,61 @@
 
       if (currentPick) {
         currentPickTeamId = currentPick.team_id;
-        const statusIcon = currentPick.is_correct === null ? '⏳ Pendiente' : currentPick.is_correct ? '✅ Correcto' : '❌ Incorrecto';
+        pickAlreadyConfirmed = true;
+        const statusIcon = currentPick.is_correct === null ? '⏳' : currentPick.is_correct ? '✅' : '❌';
         document.getElementById('current-pick-display').innerHTML = `
-          <div class="week-label">Tu pick actual</div>
-          <div style="font-size:20px;font-weight:700;margin-top:4px;">${currentPick.team.abbreviation} — ${statusIcon}</div>`;
-        if (!weekLocked) {
-          document.getElementById('pick-hint').textContent = 'Puedes cambiar tu pick antes de que cierren';
-        }
+          <div class="week-label">Tu pick</div>
+          <div style="font-size:22px;font-weight:700;margin-top:4px;color:var(--neon);font-family:var(--mono);">
+            ${statusIcon} ${currentPick.team.abbreviation}
+          </div>`;
+        document.getElementById('pick-confirmed-msg').style.display = '';
+        document.getElementById('confirm-row').style.display = 'none';
       }
 
-      // Renderizar equipos
-      renderTeams(data.teams, data.usedTeams, data.activeWeek);
+      renderTeams(data.teams, data.usedTeams);
     }
 
-    function renderTeams(teams, usedTeams, activeWeek) {
+    function renderTeams(teams, usedTeams) {
+      const now = new Date();
       const grid = document.getElementById('team-grid');
+
       grid.innerHTML = teams.map(team => {
-        const isUsed     = usedTeams.includes(team.id) && team.id !== currentPickTeamId;
-        const isCurrent  = team.id === currentPickTeamId;
-        const isDisabled = weekLocked || isUsed;
+        const isUsedBefore  = usedTeams.includes(team.id) && team.id !== currentPickTeamId;
+        const isCurrent     = team.id === currentPickTeamId;
+        const alreadyPlayed = lockedTeamIds.includes(team.id) && !isCurrent;
+        const isDisabled    = weekLocked || isUsedBefore || pickAlreadyConfirmed || alreadyPlayed;
+        const logo          = teamLogo(team.abbreviation);
+
+        let cardClass = 'team-card';
+        let cardStyle = '';
+        let badge = '';
+
+        if (isUsedBefore) {
+          cardClass += ' used';
+        } else if (alreadyPlayed) {
+          cardClass += ' played';
+          cardStyle = 'opacity:.35;cursor:not-allowed;border-color:rgba(255,45,120,.2);';
+          badge = `<div style="position:absolute;top:4px;right:4px;font-size:8px;font-weight:700;color:var(--dead);background:rgba(255,45,120,.15);border:1px solid rgba(255,45,120,.3);border-radius:4px;padding:1px 5px;letter-spacing:.5px;">YA JUGÓ</div>`;
+        } else if (isCurrent) {
+          cardStyle = 'border-color:var(--neon);box-shadow:0 0 16px rgba(0,245,255,.15);background:rgba(0,245,255,.06);';
+        }
 
         return `
-          <div class="team-card ${isUsed ? 'used' : ''} ${isCurrent ? 'selected' : ''}"
+          <div class="${cardClass}" style="${cardStyle}position:relative;"
                onclick="${isDisabled ? '' : `selectTeam(${team.id}, '${team.name}', '${team.abbreviation}', this)`}"
-               title="${isUsed ? 'Ya usaste este equipo' : team.city + ' ' + team.name}"
-               style="border-color: ${isCurrent ? 'var(--accent)' : 'var(--border)'};">
-            <div class="team-abbr" style="color:${team.primary_color}">${team.abbreviation}</div>
+               title="${isUsedBefore ? 'Ya usaste este equipo' : alreadyPlayed ? 'Este equipo ya jugó esta semana' : team.city + ' ' + team.name}">
+            ${badge}
+            <img class="team-logo" src="${logo}" alt="${team.abbreviation}"
+                 onerror="this.style.display='none'">
+            <div class="team-abbr" style="color:${alreadyPlayed || isUsedBefore ? 'var(--muted)' : team.primary_color}">${team.abbreviation}</div>
             <div class="team-name-sm">${team.city}</div>
           </div>`;
       }).join('');
-
-      document.getElementById('confirm-row').style.display = weekLocked ? 'none' : 'flex';
     }
 
     function selectTeam(id, name, abbr, el) {
-      document.querySelectorAll('.team-card').forEach(c => c.classList.remove('selected'));
+      if (pickAlreadyConfirmed || weekLocked) return;
+      document.querySelectorAll('.team-card:not(.used):not(.played)').forEach(c => c.classList.remove('selected'));
       el.classList.add('selected');
       selectedTeam = { id, name, abbr };
       document.getElementById('confirm-btn').disabled = false;
@@ -146,7 +205,14 @@
     }
 
     async function confirmPick() {
-      if (!selectedTeam) return;
+      if (!selectedTeam || pickAlreadyConfirmed) return;
+
+      // Verificar de nuevo que el equipo no haya empezado a jugar
+      if (lockedTeamIds.includes(selectedTeam.id)) {
+        toast('❌ Este equipo ya está jugando, elige otro', 'error');
+        return;
+      }
+
       const btn = document.getElementById('confirm-btn');
       btn.disabled = true; btn.textContent = 'Guardando…';
 
@@ -156,8 +222,9 @@
       });
 
       if (result.success) {
-        toast(`✅ Pick guardado: ${selectedTeam.abbr}`, 'success');
-        setTimeout(() => window.location.reload(), 1000);
+        toast(`✅ Pick confirmado: ${selectedTeam.abbr}`, 'success');
+        pickAlreadyConfirmed = true;
+        setTimeout(() => window.location.reload(), 1200);
       } else {
         toast(result.error || 'Error al guardar pick', 'error');
         btn.disabled = false; btn.textContent = 'Confirmar pick';
