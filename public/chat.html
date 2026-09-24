@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat — NFL Survivor</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo">🏈 NFL <span>Survivor</span></div>
+    <div class="nav-links">
+      <a href="/dashboard.html">Liga</a>
+      <a href="/pick.html">Mi Pick</a>
+      <a href="/history.html">Historial</a>
+      <a href="/chat.html" class="active">Chat</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-name">…</span>
+      <button onclick="logout()">Salir</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="page-title">💬 Chat de la liga</div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <div class="loading"><div class="spinner"></div>Cargando mensajes…</div>
+        </div>
+        <div class="chat-input-row">
+          <input id="chat-input" class="input" placeholder="Escribe un mensaje… (máx 500 chars)" maxlength="500"
+                 onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}">
+          <button class="btn btn-primary" onclick="sendMessage()" id="send-btn">Enviar</button>
+        </div>
+      </div>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin-top:8px;">Los últimos 50 mensajes. Se actualiza cada 15 segundos.</p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script>
+    let myPlayerId = null;
+    let myName = '';
+    let lastMessageCount = 0;
+
+    async function init() {
+      const user = await requireAuth();
+      if (!user) return;
+
+      const { data: player } = await sb.from('players').select('id, display_name').eq('user_id', user.id).single();
+      myPlayerId = player?.id;
+      myName = player?.display_name || 'Jugador';
+      document.getElementById('nav-name').textContent = myName;
+
+      await loadMessages();
+      setInterval(loadMessages, 15000); // poll cada 15s
+    }
+
+    async function loadMessages() {
+      const data = await apiFetch('/chat');
+      const messages = data.messages || [];
+
+      if (messages.length === lastMessageCount) return;
+      lastMessageCount = messages.length;
+
+      const container = document.getElementById('chat-messages');
+      const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+
+      container.innerHTML = messages.length
+        ? messages.map(m => messageHtml(m)).join('')
+        : '<p style="color:var(--muted);text-align:center;padding:40px;">No hay mensajes. ¡Sé el primero!</p>';
+
+      if (wasAtBottom || messages.length === lastMessageCount) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function messageHtml(m) {
+      const isMe = m.player?.display_name === myName;
+      const initial = (m.player?.display_name || '?')[0].toUpperCase();
+      const time = new Date(m.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+      const aliveIcon = m.player?.is_alive === false ? ' 💀' : '';
+
+      return `
+        <div class="chat-msg ${isMe ? 'own' : ''}">
+          <div class="player-avatar">${initial}</div>
+          <div class="chat-bubble-wrap">
+            <div class="chat-meta">
+              <span class="chat-name">${m.player?.display_name || 'Anónimo'}${aliveIcon}</span>
+              <span class="chat-time">${time}</span>
+            </div>
+            <div class="chat-bubble">${escapeHtml(m.message)}</div>
+          </div>
+        </div>`;
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('chat-input');
+      const msg = input.value.trim();
+      if (!msg) return;
+
+      const btn = document.getElementById('send-btn');
+      btn.disabled = true;
+      input.value = '';
+
+      const result = await apiFetch('/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: msg }),
+      });
+
+      if (result.error) {
+        toast(result.error, 'error');
+        input.value = msg;
+      } else {
+        await loadMessages();
+      }
+
+      btn.disabled = false;
+      input.focus();
+    }
+
+    async function logout() {
+      await sb.auth.signOut();
+      window.location.href = '/index.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>

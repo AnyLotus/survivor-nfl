@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Historial — NFL Survivor</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo">🏈 NFL <span>Survivor</span></div>
+    <div class="nav-links">
+      <a href="/dashboard.html">Liga</a>
+      <a href="/pick.html">Mi Pick</a>
+      <a href="/history.html" class="active">Historial</a>
+      <a href="/chat.html">Chat</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-name">…</span>
+      <button onclick="logout()">Salir</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div id="loading" class="loading"><div class="spinner"></div>Cargando historial…</div>
+    <div id="content" style="display:none;">
+
+      <div class="page-title">📋 Historial de picks</div>
+
+      <!-- Selector de jugador -->
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
+        <span style="color:var(--muted);font-size:14px;">Ver picks de:</span>
+        <select id="player-select" class="input" style="width:auto;max-width:220px;" onchange="loadHistory()">
+          <option value="">Cargando…</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <div id="history-content">
+          <div class="loading"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script>
+    let myPlayerId = null;
+
+    async function init() {
+      const user = await requireAuth();
+      if (!user) return;
+
+      const { data: player } = await sb.from('players').select('id, display_name').eq('user_id', user.id).single();
+      document.getElementById('nav-name').textContent = player?.display_name || 'Jugador';
+      myPlayerId = player?.id;
+
+      // Cargar lista de jugadores
+      const { data: players } = await sb.from('players').select('id, display_name').order('display_name');
+      const select = document.getElementById('player-select');
+      select.innerHTML = (players || []).map(p =>
+        `<option value="${p.id}" ${p.id === myPlayerId ? 'selected' : ''}>${p.display_name}</option>`
+      ).join('');
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = '';
+
+      await loadHistory();
+    }
+
+    async function loadHistory() {
+      const playerId = document.getElementById('player-select').value;
+      if (!playerId) return;
+
+      document.getElementById('history-content').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+      const { data: picks } = await sb
+        .from('picks')
+        .select('id, is_correct, submitted_at, week:weeks(week_number), team:teams(name, abbreviation, city, primary_color)')
+        .eq('player_id', playerId)
+        .order('week_id', { ascending: true });
+
+      if (!picks?.length) {
+        document.getElementById('history-content').innerHTML = '<p style="color:var(--muted);padding:20px;text-align:center;">Este jugador no tiene picks aún</p>';
+        return;
+      }
+
+      const correct   = picks.filter(p => p.is_correct === true).length;
+      const incorrect = picks.filter(p => p.is_correct === false).length;
+      const pending   = picks.filter(p => p.is_correct === null).length;
+
+      document.getElementById('history-content').innerHTML = `
+        <div style="display:flex;gap:20px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+          <div><span style="color:var(--alive);font-weight:700;font-size:18px;">${correct}</span><span style="color:var(--muted);font-size:13px;margin-left:4px;">correctos</span></div>
+          <div><span style="color:var(--dead);font-weight:700;font-size:18px;">${incorrect}</span><span style="color:var(--muted);font-size:13px;margin-left:4px;">incorrectos</span></div>
+          <div><span style="color:var(--accent2);font-weight:700;font-size:18px;">${pending}</span><span style="color:var(--muted);font-size:13px;margin-left:4px;">pendientes</span></div>
+        </div>
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Semana</th>
+              <th>Equipo</th>
+              <th>Resultado</th>
+              <th>Fecha pick</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${picks.map(p => `
+              <tr>
+                <td style="font-family:var(--mono);font-weight:600;">S${p.week?.week_number || '?'}</td>
+                <td>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="
+                      background:${p.team?.primary_color || '#333'};
+                      color:#fff;padding:2px 8px;border-radius:6px;
+                      font-family:var(--mono);font-size:12px;font-weight:700;
+                    ">${p.team?.abbreviation}</span>
+                    <span style="color:var(--muted);font-size:13px;">${p.team?.city} ${p.team?.name}</span>
+                  </div>
+                </td>
+                <td class="${p.is_correct === true ? 'pick-correct' : p.is_correct === false ? 'pick-incorrect' : 'pick-pending'}">
+                  ${p.is_correct === true ? '✅ Ganó' : p.is_correct === false ? '❌ Perdió' : '⏳ Pendiente'}
+                </td>
+                <td style="color:var(--muted);font-size:13px;">
+                  ${p.submitted_at ? new Date(p.submitted_at).toLocaleDateString('es-MX') : '—'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    }
+
+    async function logout() {
+      await sb.auth.signOut();
+      window.location.href = '/index.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>

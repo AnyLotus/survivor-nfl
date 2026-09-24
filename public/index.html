@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🏈 NFL Survivor</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-box">
+      <div class="auth-logo">🏈 NFL <span>Survivor</span></div>
+      <p class="auth-sub">El último de pie se lleva todo</p>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchTab('login')">Entrar</button>
+        <button class="auth-tab" onclick="switchTab('register')">Registrarse</button>
+      </div>
+
+      <div id="auth-error" class="auth-error"></div>
+
+      <!-- Login -->
+      <div id="tab-login">
+        <div class="form-group">
+          <label>Correo</label>
+          <input id="login-email" type="email" class="input" placeholder="tu@correo.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input id="login-password" type="password" class="input" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary" style="width:100%;" id="login-btn" onclick="login()">Entrar</button>
+      </div>
+
+      <!-- Registro -->
+      <div id="tab-register" style="display:none;">
+        <div class="form-group">
+          <label>Nombre en la liga</label>
+          <input id="reg-name" type="text" class="input" placeholder="Ej: El Guero" maxlength="30">
+        </div>
+        <div class="form-group">
+          <label>Correo</label>
+          <input id="reg-email" type="email" class="input" placeholder="tu@correo.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input id="reg-password" type="password" class="input" placeholder="Mínimo 8 caracteres" autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" style="width:100%;" id="reg-btn" onclick="register()">Crear cuenta</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script>
+    // Redirigir si ya hay sesión
+    (async () => {
+      const user = await getUser();
+      if (user) window.location.href = '/dashboard.html';
+    })();
+
+    function switchTab(tab) {
+      document.querySelectorAll('.auth-tab').forEach((t, i) => {
+        t.classList.toggle('active', (i === 0) === (tab === 'login'));
+      });
+      document.getElementById('tab-login').style.display    = tab === 'login'    ? '' : 'none';
+      document.getElementById('tab-register').style.display = tab === 'register' ? '' : 'none';
+      document.getElementById('auth-error').classList.remove('show');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('auth-error');
+      el.textContent = msg;
+      el.classList.add('show');
+    }
+
+    async function login() {
+      const email    = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+      const btn      = document.getElementById('login-btn');
+
+      if (!email || !password) return showError('Completa todos los campos');
+      btn.disabled = true; btn.textContent = 'Entrando…';
+
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) {
+        showError('Correo o contraseña incorrectos');
+        btn.disabled = false; btn.textContent = 'Entrar';
+      } else {
+        window.location.href = '/dashboard.html';
+      }
+    }
+
+    async function register() {
+      const name     = document.getElementById('reg-name').value.trim();
+      const email    = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const btn      = document.getElementById('reg-btn');
+
+      if (!name || !email || !password) return showError('Completa todos los campos');
+      if (password.length < 8) return showError('La contraseña debe tener mínimo 8 caracteres');
+
+      btn.disabled = true; btn.textContent = 'Creando cuenta…';
+
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) { showError(error.message); btn.disabled = false; btn.textContent = 'Crear cuenta'; return; }
+
+      // Crear perfil de jugador
+      if (data.user) {
+        await fetch('/api/dashboard', { // trigger creación via supabase directo
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token}` },
+        });
+
+        // Crear player via supabase js
+        await sb.from('players').insert({
+          user_id: data.user.id,
+          display_name: name,
+        });
+
+        window.location.href = '/dashboard.html';
+      }
+    }
+
+    // Enter key support
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const loginVisible = document.getElementById('tab-login').style.display !== 'none';
+        if (loginVisible) login(); else register();
+      }
+    });
+  </script>
+</body>
+</html>

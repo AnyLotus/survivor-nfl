@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi Pick — NFL Survivor</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo">🏈 NFL <span>Survivor</span></div>
+    <div class="nav-links">
+      <a href="/dashboard.html">Liga</a>
+      <a href="/pick.html" class="active">Mi Pick</a>
+      <a href="/history.html">Historial</a>
+      <a href="/chat.html">Chat</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-name">…</span>
+      <button onclick="logout()">Salir</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div id="loading" class="loading"><div class="spinner"></div>Cargando equipos…</div>
+    <div id="content" style="display:none;">
+
+      <div id="eliminated-msg" style="display:none;" class="card" style="text-align:center;">
+        <p style="font-size:24px; margin-bottom:8px;">💀</p>
+        <p style="font-size:18px; font-weight:600; margin-bottom:4px;">Estás eliminado</p>
+        <p style="color:var(--muted);">Ya no puedes hacer picks esta temporada.</p>
+      </div>
+
+      <div id="pick-section">
+        <div class="week-banner">
+          <div>
+            <div class="week-label">Haciendo pick para</div>
+            <div class="week-num" id="week-num">—</div>
+          </div>
+          <div id="current-pick-display" style="text-align:right;"></div>
+        </div>
+
+        <div id="locked-msg" style="display:none;" class="card" style="margin-bottom:16px;">
+          <p style="color:var(--accent2); font-weight:600;">🔒 Los picks están cerrados para esta semana</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Elige tu equipo</span>
+            <span style="font-size:13px;color:var(--muted);" id="pick-hint">Los equipos grises ya los usaste</span>
+          </div>
+          <div class="team-grid" id="team-grid"></div>
+          <div style="margin-top:20px;display:flex;gap:10px;align-items:center;" id="confirm-row" style="display:none;">
+            <button class="btn btn-primary" id="confirm-btn" onclick="confirmPick()" disabled>Confirmar pick</button>
+            <span id="selected-label" style="color:var(--muted);font-size:14px;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script>
+    let selectedTeam = null;
+    let currentPickTeamId = null;
+    let weekLocked = false;
+
+    async function init() {
+      const user = await requireAuth();
+      if (!user) return;
+
+      const { data: player } = await sb.from('players').select('id, display_name, is_alive').eq('user_id', user.id).single();
+      document.getElementById('nav-name').textContent = player?.display_name || 'Jugador';
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = '';
+
+      if (!player?.is_alive) {
+        document.getElementById('eliminated-msg').style.display = '';
+        document.getElementById('pick-section').style.display = 'none';
+        return;
+      }
+
+      const data = await apiFetch('/dashboard');
+
+      if (!data.activeWeek) {
+        document.getElementById('pick-section').innerHTML = '<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);">No hay semana activa. ¡Vuelve pronto!</p></div>';
+        return;
+      }
+
+      weekLocked = data.activeWeek.is_locked;
+      document.getElementById('week-num').textContent = data.activeWeek.week_number;
+
+      if (weekLocked) document.getElementById('locked-msg').style.display = '';
+
+      // Pick actual de esta semana
+      const { data: currentPick } = await sb
+        .from('picks')
+        .select('team_id, team:teams(name, abbreviation, primary_color), is_correct')
+        .eq('player_id', player.id)
+        .eq('week_id', data.activeWeek.id)
+        .single();
+
+      if (currentPick) {
+        currentPickTeamId = currentPick.team_id;
+        const statusIcon = currentPick.is_correct === null ? '⏳ Pendiente' : currentPick.is_correct ? '✅ Correcto' : '❌ Incorrecto';
+        document.getElementById('current-pick-display').innerHTML = `
+          <div class="week-label">Tu pick actual</div>
+          <div style="font-size:20px;font-weight:700;margin-top:4px;">${currentPick.team.abbreviation} — ${statusIcon}</div>`;
+        if (!weekLocked) {
+          document.getElementById('pick-hint').textContent = 'Puedes cambiar tu pick antes de que cierren';
+        }
+      }
+
+      // Renderizar equipos
+      renderTeams(data.teams, data.usedTeams, data.activeWeek);
+    }
+
+    function renderTeams(teams, usedTeams, activeWeek) {
+      const grid = document.getElementById('team-grid');
+      grid.innerHTML = teams.map(team => {
+        const isUsed     = usedTeams.includes(team.id) && team.id !== currentPickTeamId;
+        const isCurrent  = team.id === currentPickTeamId;
+        const isDisabled = weekLocked || isUsed;
+
+        return `
+          <div class="team-card ${isUsed ? 'used' : ''} ${isCurrent ? 'selected' : ''}"
+               onclick="${isDisabled ? '' : `selectTeam(${team.id}, '${team.name}', '${team.abbreviation}', this)`}"
+               title="${isUsed ? 'Ya usaste este equipo' : team.city + ' ' + team.name}"
+               style="border-color: ${isCurrent ? 'var(--accent)' : 'var(--border)'};">
+            <div class="team-abbr" style="color:${team.primary_color}">${team.abbreviation}</div>
+            <div class="team-name-sm">${team.city}</div>
+          </div>`;
+      }).join('');
+
+      document.getElementById('confirm-row').style.display = weekLocked ? 'none' : 'flex';
+    }
+
+    function selectTeam(id, name, abbr, el) {
+      document.querySelectorAll('.team-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedTeam = { id, name, abbr };
+      document.getElementById('confirm-btn').disabled = false;
+      document.getElementById('selected-label').textContent = `Seleccionado: ${abbr} — ${name}`;
+    }
+
+    async function confirmPick() {
+      if (!selectedTeam) return;
+      const btn = document.getElementById('confirm-btn');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+
+      const result = await apiFetch('/picks', {
+        method: 'POST',
+        body: JSON.stringify({ team_id: selectedTeam.id }),
+      });
+
+      if (result.success) {
+        toast(`✅ Pick guardado: ${selectedTeam.abbr}`, 'success');
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast(result.error || 'Error al guardar pick', 'error');
+        btn.disabled = false; btn.textContent = 'Confirmar pick';
+      }
+    }
+
+    async function logout() {
+      await sb.auth.signOut();
+      window.location.href = '/index.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — NFL Survivor</title>
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-logo">🏈 NFL <span>Survivor</span></div>
+    <div class="nav-links">
+      <a href="/dashboard.html" class="active">Liga</a>
+      <a href="/pick.html">Mi Pick</a>
+      <a href="/history.html">Historial</a>
+      <a href="/chat.html">Chat</a>
+    </div>
+    <div class="nav-user">
+      <span id="nav-name">…</span>
+      <button onclick="logout()">Salir</button>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div id="loading" class="loading"><div class="spinner"></div>Cargando liga…</div>
+    <div id="content" style="display:none;">
+
+      <!-- Semana activa -->
+      <div class="week-banner" id="week-banner">
+        <div>
+          <div class="week-label">Semana activa</div>
+          <div class="week-num" id="week-num">—</div>
+        </div>
+        <div id="my-pick-status" style="text-align:right;"></div>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-box alive"><div class="stat-num" id="stat-alive">0</div><div class="stat-label">Vivos</div></div>
+        <div class="stat-box dead"><div class="stat-num" id="stat-dead">0</div><div class="stat-label">Eliminados</div></div>
+        <div class="stat-box"><div class="stat-num" id="stat-total">0</div><div class="stat-label">Total jugadores</div></div>
+      </div>
+
+      <!-- Jugadores vivos -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">🟢 Vivos</span>
+          </div>
+          <div id="alive-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">💀 Eliminados</span>
+          </div>
+          <div id="dead-list"></div>
+        </div>
+      </div>
+
+      <!-- Partidos de la semana -->
+      <div class="card" style="margin-top:16px;">
+        <div class="card-header"><span class="card-title">📅 Partidos semana actual</span></div>
+        <div id="games-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/config.js"></script>
+  <script>
+    let currentUser = null;
+
+    async function init() {
+      currentUser = await requireAuth();
+      if (!currentUser) return;
+
+      const { data: player } = await sb.from('players').select('display_name').eq('user_id', currentUser.id).single();
+      document.getElementById('nav-name').textContent = player?.display_name || 'Jugador';
+
+      await loadDashboard();
+    }
+
+    async function loadDashboard() {
+      const token = await getToken();
+      const data = await apiFetch('/dashboard', { headers: { Authorization: `Bearer ${token}` } });
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('content').style.display = '';
+
+      // Stats
+      document.getElementById('stat-alive').textContent  = data.stats.alive;
+      document.getElementById('stat-dead').textContent   = data.stats.eliminated;
+      document.getElementById('stat-total').textContent  = data.stats.total;
+
+      // Semana
+      if (data.activeWeek) {
+        document.getElementById('week-num').textContent = data.activeWeek.week_number;
+      }
+
+      // Mi pick esta semana
+      if (currentUser) {
+        const { data: myPlayer } = await sb.from('players').select('id').eq('user_id', currentUser.id).single();
+        if (myPlayer && data.activeWeek) {
+          const { data: myPick } = await sb.from('picks')
+            .select('team:teams(name, abbreviation, primary_color), is_correct')
+            .eq('player_id', myPlayer.id)
+            .eq('week_id', data.activeWeek.id)
+            .single();
+
+          const el = document.getElementById('my-pick-status');
+          if (myPick) {
+            const statusIcon = myPick.is_correct === null ? '⏳' : myPick.is_correct ? '✅' : '❌';
+            el.innerHTML = `<div class="week-label">Mi pick</div>
+              <div style="font-size:20px;font-weight:700;margin-top:4px;">
+                ${statusIcon} ${myPick.team.abbreviation}
+              </div>`;
+          } else {
+            el.innerHTML = `<a href="/pick.html" class="btn btn-primary" style="text-decoration:none;">Hacer pick →</a>`;
+          }
+        }
+      }
+
+      // Jugadores
+      const alivePlayers = data.players.filter(p => p.is_alive);
+      const deadPlayers  = data.players.filter(p => !p.is_alive);
+
+      document.getElementById('alive-list').innerHTML = alivePlayers.length
+        ? alivePlayers.map(p => playerRow(p, data.activeWeek)).join('')
+        : '<p style="color:var(--muted);padding:12px 0;font-size:14px;">Ningún jugador vivo</p>';
+
+      document.getElementById('dead-list').innerHTML = deadPlayers.length
+        ? deadPlayers.map(p => playerRow(p, data.activeWeek)).join('')
+        : '<p style="color:var(--muted);padding:12px 0;font-size:14px;">Nadie eliminado aún 🎉</p>';
+
+      // Partidos
+      const games = data.activeWeek?.games || [];
+      document.getElementById('games-list').innerHTML = games.length
+        ? games.map(g => gameRow(g)).join('')
+        : '<p style="color:var(--muted);padding:12px;font-size:14px;">No hay partidos cargados</p>';
+    }
+
+    function playerRow(p, activeWeek) {
+      const initial = p.display_name[0].toUpperCase();
+      const statusClass = p.is_alive ? 'status-alive' : 'status-dead';
+      const statusText  = p.is_alive ? '🟢 VIVO' : `💀 S${p.eliminated_week || '?'}`;
+
+      // Pick de esta semana
+      const weekPick = activeWeek
+        ? p.picks?.find(pk => pk.week_id === activeWeek.id)
+        : null;
+
+      const pickHtml = weekPick
+        ? `<span style="font-size:12px;font-family:var(--mono);color:${weekPick.team?.primary_color || '#fff'};
+            background:rgba(255,255,255,.07);padding:2px 8px;border-radius:6px;">
+            ${weekPick.team?.abbreviation || '?'}
+           </span>`
+        : '';
+
+      return `
+        <div class="player-row">
+          <div class="player-avatar">${initial}</div>
+          <div class="player-name ${p.is_alive ? '' : 'eliminated'}">${p.display_name}</div>
+          ${pickHtml}
+          <span class="status-pill ${statusClass}">${statusText}</span>
+        </div>`;
+    }
+
+    function gameRow(g) {
+      const home = g.home_team;
+      const away = g.away_team;
+      const time = g.game_time ? new Date(g.game_time).toLocaleString('es-MX', { weekday:'short', hour:'2-digit', minute:'2-digit' }) : '';
+      const score = g.status === 'final'
+        ? `<span style="font-family:var(--mono);font-weight:700;">${g.away_score} – ${g.home_score}</span>`
+        : `<span style="color:var(--muted);font-size:13px;">${time}</span>`;
+      const badge = g.status === 'live' ? '<span style="color:var(--alive);font-size:11px;font-weight:700;">● EN VIVO</span>' : '';
+
+      return `
+        <div class="player-row" style="gap:16px;">
+          <span style="font-family:var(--mono);font-weight:700;color:var(--muted);font-size:13px;width:30px;">${away?.abbreviation}</span>
+          <span style="font-size:13px;flex:1;">${away?.city} ${away?.name} @ ${home?.city} ${home?.name}</span>
+          ${badge}
+          ${score}
+          <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);">${g.status}</span>
+        </div>`;
+    }
+
+    async function logout() {
+      await sb.auth.signOut();
+      window.location.href = '/index.html';
+    }
+
+    init();
+  </script>
+</body>
+</html>
