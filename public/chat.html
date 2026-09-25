@@ -15,6 +15,7 @@
       <a href="/history.html">Historial</a>
       <a href="/chat.html" class="active">Chat</a>
     </div>
+    <div id="admin-nav-link"></div>
     <div class="nav-user">
       <span id="nav-name">…</span>
       <button onclick="logout()">Salir</button>
@@ -63,6 +64,7 @@
       document.getElementById('nav-name').textContent = myName;
 
       await loadMessages();
+      await checkAdmin();
       setInterval(loadMessages, 15000); // poll cada 15s
     }
 
@@ -127,10 +129,20 @@
         input.value = msg;
       } else {
         await loadMessages();
+      await checkAdmin();
       }
 
       btn.disabled = false;
       input.focus();
+    }
+
+    async function checkAdmin() {
+      const user = await getUser();
+      if (!user) return;
+      const { data: player } = await sb.from("players").select("is_admin").eq("user_id", user.id).single();
+      if (player?.is_admin) {
+        document.getElementById("admin-nav-link").innerHTML = `<a href="/admin.html" style="padding:6px 14px;border-radius:6px;color:var(--neon3);font-size:13px;font-weight:600;border:1px solid rgba(124,58,255,.3);background:rgba(124,58,255,.05);">⚙️ Admin</a>`;
+      }
     }
 
     async function logout() {
