@@ -5,6 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard — NFL Survivor</title>
   <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .player-pick-logo {
+      width: 32px; height: 32px; object-fit: contain;
+      border-radius: 6px; background: var(--surface3);
+      padding: 2px;
+    }
+    .pick-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface3); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 3px 8px 3px 4px;
+    }
+    .pick-badge-abbr {
+      font-size: 11px; font-weight: 700;
+      font-family: var(--mono);
+    }
+    .pick-badge.correct   { border-color: rgba(0,255,136,.3); background: rgba(0,255,136,.06); }
+    .pick-badge.incorrect { border-color: rgba(255,45,120,.3); background: rgba(255,45,120,.06); }
+    .no-pick-badge {
+      font-size: 11px; color: var(--muted); font-style: italic;
+    }
+    .game-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .game-row:last-child { border-bottom: none; }
+    .game-team {
+      display: flex; align-items: center; gap: 6px; flex: 1;
+    }
+    .game-logo { width: 24px; height: 24px; object-fit: contain; }
+    .game-abbr { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+    .game-vs { color: var(--muted); font-size: 12px; padding: 0 4px; }
+    .game-score { font-family: var(--mono); font-weight: 700; font-size: 14px; min-width: 60px; text-align: center; }
+    .game-time { color: var(--muted2); font-size: 12px; min-width: 80px; text-align: right; }
+    .live-dot { color: var(--alive); font-size: 10px; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .status-chip {
+      font-size: 10px; font-weight: 700; padding: 2px 7px;
+      border-radius: 4px; font-family: var(--mono); letter-spacing: .3px;
+    }
+    .status-final    { background: rgba(255,255,255,.06); color: var(--muted2); }
+    .status-live     { background: rgba(0,255,136,.1); color: var(--alive); border: 1px solid rgba(0,255,136,.2); }
+    .status-scheduled{ background: rgba(0,245,255,.06); color: var(--neon); }
+  </style>
 </head>
 <body>
   <nav class="nav">
@@ -26,7 +69,7 @@
     <div id="content" style="display:none;">
 
       <!-- Semana activa -->
-      <div class="week-banner" id="week-banner">
+      <div class="week-banner">
         <div>
           <div class="week-label">Semana activa</div>
           <div class="week-num" id="week-num">—</div>
@@ -41,26 +84,30 @@
         <div class="stat-box"><div class="stat-num" id="stat-total">0</div><div class="stat-label">Total jugadores</div></div>
       </div>
 
-      <!-- Jugadores vivos -->
-      <div class="grid-2">
+      <!-- Jugadores -->
+      <div class="grid-2" style="margin-bottom:16px;">
         <div class="card">
           <div class="card-header">
             <span class="card-title">🟢 Vivos</span>
+            <span id="alive-count" style="font-size:12px;color:var(--alive);font-family:var(--mono);"></span>
           </div>
           <div id="alive-list"></div>
         </div>
-
         <div class="card">
           <div class="card-header">
             <span class="card-title">💀 Eliminados</span>
+            <span id="dead-count" style="font-size:12px;color:var(--dead);font-family:var(--mono);"></span>
           </div>
           <div id="dead-list"></div>
         </div>
       </div>
 
       <!-- Partidos de la semana -->
-      <div class="card" style="margin-top:16px;">
-        <div class="card-header"><span class="card-title">📅 Partidos semana actual</span></div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📅 Partidos semana actual</span>
+          <span id="games-count" style="font-size:12px;color:var(--muted2);font-family:var(--mono);"></span>
+        </div>
         <div id="games-list"></div>
       </div>
     </div>
@@ -70,6 +117,20 @@
   <script src="/js/config.js"></script>
   <script>
     let currentUser = null;
+
+    function teamLogo(abbr) {
+      const map = {
+        'ARI':'ari','ATL':'atl','BAL':'bal','BUF':'buf','CAR':'car',
+        'CHI':'chi','CIN':'cin','CLE':'cle','DAL':'dal','DEN':'den',
+        'DET':'det','GB':'gb','HOU':'hou','IND':'ind','JAX':'jax',
+        'KC':'kc','LV':'lv','LAC':'lac','LAR':'lar','MIA':'mia',
+        'MIN':'min','NE':'ne','NO':'no','NYG':'nyg','NYJ':'nyj',
+        'PHI':'phi','PIT':'pit','SF':'sf','SEA':'sea','TB':'tb',
+        'TEN':'ten','WSH':'wsh'
+      };
+      const code = map[abbr] || abbr.toLowerCase();
+      return `https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`;
+    }
 
     async function init() {
       currentUser = await requireAuth();
@@ -89,9 +150,9 @@
       document.getElementById('content').style.display = '';
 
       // Stats
-      document.getElementById('stat-alive').textContent  = data.stats.alive;
-      document.getElementById('stat-dead').textContent   = data.stats.eliminated;
-      document.getElementById('stat-total').textContent  = data.stats.total;
+      document.getElementById('stat-alive').textContent = data.stats.alive;
+      document.getElementById('stat-dead').textContent  = data.stats.eliminated;
+      document.getElementById('stat-total').textContent = data.stats.total;
 
       // Semana
       if (data.activeWeek) {
@@ -99,68 +160,76 @@
       }
 
       // Mi pick esta semana
-      if (currentUser) {
-        const { data: myPlayer } = await sb.from('players').select('id').eq('user_id', currentUser.id).single();
-        if (myPlayer && data.activeWeek) {
-          const { data: myPick } = await sb.from('picks')
-            .select('team:teams(name, abbreviation, primary_color), is_correct')
-            .eq('player_id', myPlayer.id)
-            .eq('week_id', data.activeWeek.id)
-            .single();
+      if (currentUser && data.myPlayerId && data.activeWeek) {
+        const { data: myPick } = await sb.from('picks')
+          .select('team:teams(name, abbreviation, primary_color), is_correct')
+          .eq('player_id', data.myPlayerId)
+          .eq('week_id', data.activeWeek.id)
+          .single();
 
-          const el = document.getElementById('my-pick-status');
-          if (myPick) {
-            const statusIcon = myPick.is_correct === null ? '⏳' : myPick.is_correct ? '✅' : '❌';
-            el.innerHTML = `<div class="week-label">Mi pick</div>
-              <div style="font-size:20px;font-weight:700;margin-top:4px;">
-                ${statusIcon} ${myPick.team.abbreviation}
-              </div>`;
-          } else {
-            el.innerHTML = `<a href="/pick.html" class="btn btn-primary" style="text-decoration:none;">Hacer pick →</a>`;
-          }
+        const el = document.getElementById('my-pick-status');
+        if (myPick) {
+          const statusIcon = myPick.is_correct === null ? '⏳' : myPick.is_correct ? '✅' : '❌';
+          el.innerHTML = `
+            <div class="week-label">Mi pick esta semana</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;justify-content:flex-end;">
+              <img src="${teamLogo(myPick.team.abbreviation)}" style="width:32px;height:32px;object-fit:contain;">
+              <span style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--neon);">${myPick.team.abbreviation}</span>
+              <span style="font-size:18px;">${statusIcon}</span>
+            </div>`;
+        } else {
+          el.innerHTML = `<a href="/pick.html" class="btn btn-primary" style="text-decoration:none;">Hacer pick →</a>`;
         }
       }
 
-      // Jugadores
+      // Jugadores vivos
       const alivePlayers = data.players.filter(p => p.is_alive);
       const deadPlayers  = data.players.filter(p => !p.is_alive);
 
+      document.getElementById('alive-count').textContent = alivePlayers.length;
+      document.getElementById('dead-count').textContent  = deadPlayers.length;
+
       document.getElementById('alive-list').innerHTML = alivePlayers.length
         ? alivePlayers.map(p => playerRow(p, data.activeWeek)).join('')
-        : '<p style="color:var(--muted);padding:12px 0;font-size:14px;">Ningún jugador vivo</p>';
+        : '<p style="color:var(--muted2);padding:12px 0;font-size:13px;">Ningún jugador vivo</p>';
 
       document.getElementById('dead-list').innerHTML = deadPlayers.length
         ? deadPlayers.map(p => playerRow(p, data.activeWeek)).join('')
-        : '<p style="color:var(--muted);padding:12px 0;font-size:14px;">Nadie eliminado aún 🎉</p>';
+        : '<p style="color:var(--muted2);padding:12px 0;font-size:13px;">Nadie eliminado aún 🎉</p>';
 
       // Partidos
       const games = data.activeWeek?.games || [];
-      document.getElementById('games-list').innerHTML = games.length
-        ? games.map(g => gameRow(g)).join('')
-        : '<p style="color:var(--muted);padding:12px;font-size:14px;">No hay partidos cargados</p>';
+      const sorted = [...games].sort((a, b) => new Date(a.game_time) - new Date(b.game_time));
+      document.getElementById('games-count').textContent = `${games.length} partidos`;
+      document.getElementById('games-list').innerHTML = sorted.length
+        ? sorted.map(g => gameRow(g)).join('')
+        : '<p style="color:var(--muted2);padding:12px;font-size:13px;">No hay partidos cargados</p>';
     }
 
     function playerRow(p, activeWeek) {
       const initial = p.display_name[0].toUpperCase();
       const statusClass = p.is_alive ? 'status-alive' : 'status-dead';
-      const statusText  = p.is_alive ? '🟢 VIVO' : `💀 S${p.eliminated_week || '?'}`;
+      const statusText  = p.is_alive ? 'VIVO' : `💀 S${p.eliminated_week || '?'}`;
 
       // Pick de esta semana
-      const weekPick = activeWeek
-        ? p.picks?.find(pk => pk.week_id === activeWeek.id)
-        : null;
+      const weekPick = activeWeek ? p.picks?.find(pk => pk.week_id === activeWeek.id) : null;
 
-      const pickHtml = weekPick
-        ? `<span style="font-size:12px;font-family:var(--mono);color:${weekPick.team?.primary_color || '#fff'};
-            background:rgba(255,255,255,.07);padding:2px 8px;border-radius:6px;">
-            ${weekPick.team?.abbreviation || '?'}
-           </span>`
-        : '';
+      let pickHtml = '<span class="no-pick-badge">sin pick</span>';
+      if (weekPick?.team) {
+        const resultClass = weekPick.is_correct === true ? 'correct' : weekPick.is_correct === false ? 'incorrect' : '';
+        const resultIcon  = weekPick.is_correct === true ? '✅' : weekPick.is_correct === false ? '❌' : '⏳';
+        pickHtml = `
+          <div class="pick-badge ${resultClass}">
+            <img class="player-pick-logo" src="${teamLogo(weekPick.team.abbreviation)}" alt="${weekPick.team.abbreviation}" onerror="this.style.display='none'">
+            <span class="pick-badge-abbr" style="color:${weekPick.team.primary_color}">${weekPick.team.abbreviation}</span>
+            <span style="font-size:13px;">${resultIcon}</span>
+          </div>`;
+      }
 
       return `
         <div class="player-row">
           <div class="player-avatar">${initial}</div>
-          <div class="player-name ${p.is_alive ? '' : 'eliminated'}">${p.display_name}</div>
+          <div class="player-name ${p.is_alive ? '' : 'eliminated'}" style="flex:1;">${p.display_name}</div>
           ${pickHtml}
           <span class="status-pill ${statusClass}">${statusText}</span>
         </div>`;
@@ -169,19 +238,36 @@
     function gameRow(g) {
       const home = g.home_team;
       const away = g.away_team;
-      const time = g.game_time ? new Date(g.game_time).toLocaleString('es-MX', { weekday:'short', hour:'2-digit', minute:'2-digit' }) : '';
-      const score = g.status === 'final'
-        ? `<span style="font-family:var(--mono);font-weight:700;">${g.away_score} – ${g.home_score}</span>`
-        : `<span style="color:var(--muted);font-size:13px;">${time}</span>`;
-      const badge = g.status === 'live' ? '<span style="color:var(--alive);font-size:11px;font-weight:700;">● EN VIVO</span>' : '';
+      const time = g.game_time
+        ? new Date(g.game_time).toLocaleString('es-MX', { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+        : '';
+
+      let statusHtml = '';
+      if (g.status === 'live') {
+        statusHtml = `<span class="status-chip status-live"><span class="live-dot">●</span> EN VIVO</span>`;
+      } else if (g.status === 'final') {
+        statusHtml = `<span class="status-chip status-final">FINAL</span>`;
+      } else {
+        statusHtml = `<span class="status-chip status-scheduled">PRÓXIMO</span>`;
+      }
+
+      const scoreHtml = g.status === 'final' || g.status === 'live'
+        ? `<span class="game-score">${g.away_score ?? '-'} – ${g.home_score ?? '-'}</span>`
+        : `<span class="game-time">${time}</span>`;
 
       return `
-        <div class="player-row" style="gap:16px;">
-          <span style="font-family:var(--mono);font-weight:700;color:var(--muted);font-size:13px;width:30px;">${away?.abbreviation}</span>
-          <span style="font-size:13px;flex:1;">${away?.city} ${away?.name} @ ${home?.city} ${home?.name}</span>
-          ${badge}
-          ${score}
-          <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--muted);">${g.status}</span>
+        <div class="game-row">
+          <div class="game-team">
+            <img class="game-logo" src="${teamLogo(away?.abbreviation)}" alt="${away?.abbreviation}" onerror="this.style.display='none'">
+            <span class="game-abbr">${away?.abbreviation}</span>
+          </div>
+          <span class="game-vs">@</span>
+          <div class="game-team">
+            <img class="game-logo" src="${teamLogo(home?.abbreviation)}" alt="${home?.abbreviation}" onerror="this.style.display='none'">
+            <span class="game-abbr">${home?.abbreviation}</span>
+          </div>
+          ${scoreHtml}
+          ${statusHtml}
         </div>`;
     }
 
