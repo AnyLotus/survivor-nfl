@@ -85,16 +85,16 @@
     let weekLocked = false;
     let lockedTeamIds = [];
 
-    function teamLogo(abbr) {
-      const map = {
-        'ARI':'crd','ATL':'atl','BAL':'rav','BUF':'buf','CAR':'car',
-        'CHI':'chi','CIN':'cin','CLE':'cle','DAL':'dal','DEN':'den',
-        'DET':'det','GB':'gnb','HOU':'htx','IND':'clt','JAX':'jax',
-        'KC':'kan','LV':'rai','LAC':'sdg','LAR':'ram','MIA':'mia',
-        'MIN':'min','NE':'nwe','NO':'nor','NYG':'nyg','NYJ':'nyj',
-        'PHI':'phi','PIT':'pit','SF':'sfo','SEA':'sea','TB':'tam',
-        'TEN':'oti','WSH':'was'
-      };
+ function teamLogo(abbr) {
+  const map = {
+    'ARI':'ari','ATL':'atl','BAL':'bal','BUF':'buf','CAR':'car',
+    'CHI':'chi','CIN':'cin','CLE':'cle','DAL':'dal','DEN':'den',
+    'DET':'det','GB':'gb','HOU':'hou','IND':'ind','JAX':'jax',
+    'KC':'kc','LV':'lv','LAC':'lac','LAR':'lar','MIA':'mia',
+    'MIN':'min','NE':'ne','NO':'no','NYG':'nyg','NYJ':'nyj',
+    'PHI':'phi','PIT':'pit','SF':'sf','SEA':'sea','TB':'tb',
+    'TEN':'ten','WSH':'wsh'
+  };
       const code = map[abbr] || abbr.toLowerCase();
       return `https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`;
     }
