@@ -259,12 +259,18 @@
         <div class="game-row">
           <div class="game-team">
             <img class="game-logo" src="${teamLogo(away?.abbreviation)}" alt="${away?.abbreviation}" onerror="this.style.display='none'">
-            <span class="game-abbr">${away?.abbreviation}</span>
+            <div>
+              <span class="game-abbr">${away?.abbreviation}</span>
+              <div style="font-size:10px;color:var(--muted2);">${away?.city || ''}</div>
+            </div>
           </div>
           <span class="game-vs">@</span>
           <div class="game-team">
             <img class="game-logo" src="${teamLogo(home?.abbreviation)}" alt="${home?.abbreviation}" onerror="this.style.display='none'">
-            <span class="game-abbr">${home?.abbreviation}</span>
+            <div>
+              <span class="game-abbr">${home?.abbreviation}</span>
+              <div style="font-size:10px;color:var(--muted2);">${home?.city || ''}</div>
+            </div>
           </div>
           ${scoreHtml}
           ${statusHtml}
