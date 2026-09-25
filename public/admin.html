@@ -187,6 +187,7 @@
             <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="toggleAlive('${p.id}', ${p.is_alive})">
               ${p.is_alive ? 'Eliminar' : 'Revivir'}
             </button>
+            <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="deleteWeekPick('${p.id}', '${p.display_name}')">🗑 Pick</button>
             <button class="btn btn-danger" style="font-size:11px;padding:4px 10px;" onclick="deletePlayer('${p.id}', '${p.display_name}')">
               Borrar
             </button>
@@ -234,6 +235,14 @@
 
     function escapeHtml(text) {
       return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    async function deleteWeekPick(playerId, name) {
+      if (!activeWeek) return toast('No hay semana activa', 'error');
+      if (!confirm(`¿Borrar el pick de ${name} esta semana?`)) return;
+      await sb.from('picks').delete().eq('player_id', playerId).eq('week_id', activeWeek.id);
+      toast(`🗑 Pick de ${name} borrado`, 'success');
+      await loadPlayers();
     }
 
     async function toggleAlive(playerId, isAlive) {
