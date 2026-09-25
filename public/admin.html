@@ -174,7 +174,7 @@
     }
 
     async function syncScores() {
-      const btn = event.target;
+      const btn = document.querySelector('[onclick="syncScores()"]');
       btn.disabled = true; btn.textContent = 'Sincronizando…';
       try {
         const res = await apiFetch('/sync-scores');
