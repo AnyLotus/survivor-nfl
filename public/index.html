@@ -5,6 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🏈 NFL Survivor</title>
   <link rel="stylesheet" href="/css/main.css">
+  <style>
+    .nip-input {
+      display: flex; gap: 10px; justify-content: center; margin: 8px 0;
+    }
+    .nip-digit {
+      width: 52px; height: 60px;
+      background: var(--surface2); border: 1px solid var(--border2);
+      border-radius: 10px; color: var(--text);
+      font-family: var(--mono); font-size: 24px; font-weight: 700;
+      text-align: center; caret-color: var(--neon);
+      transition: all .15s;
+    }
+    .nip-digit:focus {
+      outline: none; border-color: var(--neon);
+      box-shadow: 0 0 12px rgba(0,245,255,.15);
+    }
+    .nip-digit.filled { border-color: rgba(0,245,255,.4); }
+  </style>
 </head>
 <body>
   <div class="auth-wrap">
@@ -22,31 +40,38 @@
       <!-- Login -->
       <div id="tab-login">
         <div class="form-group">
-          <label>Correo</label>
-          <input id="login-email" type="email" class="input" placeholder="tu@correo.com" autocomplete="email">
+          <label>Tu nombre en la liga</label>
+          <input id="login-name" type="text" class="input" placeholder="Ej: El Guero" autocomplete="username">
         </div>
         <div class="form-group">
-          <label>Contraseña</label>
-          <input id="login-password" type="password" class="input" placeholder="••••••••" autocomplete="current-password">
+          <label>NIP (4 dígitos)</label>
+          <div class="nip-input">
+            <input class="nip-digit" id="l0" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+            <input class="nip-digit" id="l1" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+            <input class="nip-digit" id="l2" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+            <input class="nip-digit" id="l3" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+          </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;" id="login-btn" onclick="login()">Entrar</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" id="login-btn" onclick="login()">Entrar</button>
       </div>
 
       <!-- Registro -->
       <div id="tab-register" style="display:none;">
         <div class="form-group">
-          <label>Nombre en la liga</label>
+          <label>Tu nombre en la liga</label>
           <input id="reg-name" type="text" class="input" placeholder="Ej: El Guero" maxlength="30">
         </div>
         <div class="form-group">
-          <label>Correo</label>
-          <input id="reg-email" type="email" class="input" placeholder="tu@correo.com" autocomplete="email">
+          <label>Elige tu NIP (4 dígitos)</label>
+          <div class="nip-input">
+            <input class="nip-digit" id="r0" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+            <input class="nip-digit" id="r1" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+            <input class="nip-digit" id="r2" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+            <input class="nip-digit" id="r3" maxlength="1" type="password" inputmode="numeric" pattern="[0-9]">
+          </div>
+          <p style="font-size:11px;color:var(--muted2);margin-top:6px;">No lo olvides — no hay forma de recuperarlo</p>
         </div>
-        <div class="form-group">
-          <label>Contraseña</label>
-          <input id="reg-password" type="password" class="input" placeholder="Mínimo 8 caracteres" autocomplete="new-password">
-        </div>
-        <button class="btn btn-primary" style="width:100%;" id="reg-btn" onclick="register()">Crear cuenta</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;" id="reg-btn" onclick="register()">Crear cuenta</button>
       </div>
     </div>
   </div>
@@ -60,6 +85,55 @@
       if (user) window.location.href = '/dashboard.html';
     })();
 
+    // Auto-avance entre dígitos del NIP
+    function setupNip(prefix) {
+      for (let i = 0; i < 4; i++) {
+        const el = document.getElementById(`${prefix}${i}`);
+        el.addEventListener('input', e => {
+          const val = e.target.value.replace(/[^0-9]/g, '');
+          e.target.value = val;
+          if (val) {
+            e.target.classList.add('filled');
+            if (i < 3) document.getElementById(`${prefix}${i+1}`).focus();
+          } else {
+            e.target.classList.remove('filled');
+          }
+        });
+        el.addEventListener('keydown', e => {
+          if (e.key === 'Backspace' && !e.target.value && i > 0) {
+            document.getElementById(`${prefix}${i-1}`).focus();
+          }
+          if (e.key === 'Enter') {
+            if (prefix === 'l') login(); else register();
+          }
+        });
+        el.addEventListener('paste', e => {
+          e.preventDefault();
+          const text = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 4);
+          for (let j = 0; j < text.length && i + j < 4; j++) {
+            const d = document.getElementById(`${prefix}${i+j}`);
+            d.value = text[j]; d.classList.add('filled');
+          }
+          const last = Math.min(i + text.length, 3);
+          document.getElementById(`${prefix}${last}`).focus();
+        });
+      }
+    }
+    setupNip('l');
+    setupNip('r');
+
+    function getNip(prefix) {
+      return ['0','1','2','3'].map(i => document.getElementById(`${prefix}${i}`).value).join('');
+    }
+
+    // Generamos un email ficticio basado en el nombre normalizado
+    function nameToEmail(name) {
+      const slug = name.toLowerCase().trim()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+      return `${slug}@survnfl.liga`;
+    }
+
     function switchTab(tab) {
       document.querySelectorAll('.auth-tab').forEach((t, i) => {
         t.classList.toggle('active', (i === 0) === (tab === 'login'));
@@ -71,21 +145,25 @@
 
     function showError(msg) {
       const el = document.getElementById('auth-error');
-      el.textContent = msg;
-      el.classList.add('show');
+      el.textContent = msg; el.classList.add('show');
     }
 
     async function login() {
-      const email    = document.getElementById('login-email').value.trim();
-      const password = document.getElementById('login-password').value;
-      const btn      = document.getElementById('login-btn');
+      const name = document.getElementById('login-name').value.trim();
+      const nip  = getNip('l');
+      const btn  = document.getElementById('login-btn');
 
-      if (!email || !password) return showError('Completa todos los campos');
+      if (!name) return showError('Escribe tu nombre');
+      if (nip.length !== 4) return showError('Ingresa tus 4 dígitos');
+
       btn.disabled = true; btn.textContent = 'Entrando…';
+
+      const email    = nameToEmail(name);
+      const password = `nfl${nip}${name.toLowerCase().trim()}`;
 
       const { error } = await sb.auth.signInWithPassword({ email, password });
       if (error) {
-        showError('Correo o contraseña incorrectos');
+        showError('Nombre o NIP incorrecto');
         btn.disabled = false; btn.textContent = 'Entrar';
       } else {
         window.location.href = '/dashboard.html';
@@ -93,42 +171,42 @@
     }
 
     async function register() {
-      const name     = document.getElementById('reg-name').value.trim();
-      const email    = document.getElementById('reg-email').value.trim();
-      const password = document.getElementById('reg-password').value;
-      const btn      = document.getElementById('reg-btn');
+      const name = document.getElementById('reg-name').value.trim();
+      const nip  = getNip('r');
+      const btn  = document.getElementById('reg-btn');
 
-      if (!name || !email || !password) return showError('Completa todos los campos');
-      if (password.length < 8) return showError('La contraseña debe tener mínimo 8 caracteres');
+      if (!name) return showError('Escribe tu nombre');
+      if (nip.length !== 4) return showError('Elige tus 4 dígitos');
 
       btn.disabled = true; btn.textContent = 'Creando cuenta…';
 
+      const email    = nameToEmail(name);
+      const password = `nfl${nip}${name.toLowerCase().trim()}`;
+
       const { data, error } = await sb.auth.signUp({ email, password });
-      if (error) { showError(error.message); btn.disabled = false; btn.textContent = 'Crear cuenta'; return; }
+      if (error) {
+        // Si ya existe ese nombre
+        if (error.message.includes('already')) {
+          showError('Ese nombre ya está en uso, elige otro');
+        } else {
+          showError(error.message);
+        }
+        btn.disabled = false; btn.textContent = 'Crear cuenta';
+        return;
+      }
 
-      // Crear perfil de jugador
       if (data.user) {
-        await fetch('/api/dashboard', { // trigger creación via supabase directo
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token}` },
-        });
-
-        // Crear player via supabase js
         await sb.from('players').insert({
           user_id: data.user.id,
           display_name: name,
         });
-
         window.location.href = '/dashboard.html';
       }
     }
 
-    // Enter key support
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Enter') {
-        const loginVisible = document.getElementById('tab-login').style.display !== 'none';
-        if (loginVisible) login(); else register();
-      }
+    // Focus al primer dígito al cargar
+    document.getElementById('login-name').addEventListener('keydown', e => {
+      if (e.key === 'Tab') { e.preventDefault(); document.getElementById('l0').focus(); }
     });
   </script>
 </body>
