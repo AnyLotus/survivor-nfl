@@ -46,6 +46,14 @@
     let lastMessageCount = 0;
 
     async function init() {
+      // Verificar si chat está habilitado
+      const { data: setting } = await sb.from("settings").select("value").eq("key", "chat_enabled").single();
+      const chatEnabled = setting?.value !== "false";
+      if (!chatEnabled) {
+        document.getElementById("chat-input").disabled = true;
+        document.getElementById("send-btn").disabled = true;
+        document.getElementById("chat-input").placeholder = "El chat está desactivado temporalmente";
+      }
       const user = await requireAuth();
       if (!user) return;
 
