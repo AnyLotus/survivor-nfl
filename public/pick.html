@@ -15,6 +15,7 @@
       <a href="/history.html">Historial</a>
       <a href="/chat.html">Chat</a>
     </div>
+    <div id="admin-nav-link"></div>
     <div class="nav-user">
       <span id="nav-name">…</span>
       <button onclick="logout()">Salir</button>
@@ -85,16 +86,16 @@
     let weekLocked = false;
     let lockedTeamIds = [];
 
- function teamLogo(abbr) {
-  const map = {
-    'ARI':'ari','ATL':'atl','BAL':'bal','BUF':'buf','CAR':'car',
-    'CHI':'chi','CIN':'cin','CLE':'cle','DAL':'dal','DEN':'den',
-    'DET':'det','GB':'gb','HOU':'hou','IND':'ind','JAX':'jax',
-    'KC':'kc','LV':'lv','LAC':'lac','LAR':'lar','MIA':'mia',
-    'MIN':'min','NE':'ne','NO':'no','NYG':'nyg','NYJ':'nyj',
-    'PHI':'phi','PIT':'pit','SF':'sf','SEA':'sea','TB':'tb',
-    'TEN':'ten','WSH':'wsh'
-  };
+    function teamLogo(abbr) {
+      const map = {
+        'ARI':'crd','ATL':'atl','BAL':'rav','BUF':'buf','CAR':'car',
+        'CHI':'chi','CIN':'cin','CLE':'cle','DAL':'dal','DEN':'den',
+        'DET':'det','GB':'gnb','HOU':'htx','IND':'clt','JAX':'jax',
+        'KC':'kan','LV':'rai','LAC':'sdg','LAR':'ram','MIA':'mia',
+        'MIN':'min','NE':'nwe','NO':'nor','NYG':'nyg','NYJ':'nyj',
+        'PHI':'phi','PIT':'pit','SF':'sfo','SEA':'sea','TB':'tam',
+        'TEN':'oti','WSH':'was'
+      };
       const code = map[abbr] || abbr.toLowerCase();
       return `https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`;
     }
@@ -155,6 +156,7 @@
       }
 
       renderTeams(data.teams, data.usedTeams);
+      await checkAdmin();
     }
 
     function renderTeams(teams, usedTeams) {
@@ -228,6 +230,15 @@
       } else {
         toast(result.error || 'Error al guardar pick', 'error');
         btn.disabled = false; btn.textContent = 'Confirmar pick';
+      }
+    }
+
+    async function checkAdmin() {
+      const user = await getUser();
+      if (!user) return;
+      const { data: player } = await sb.from("players").select("is_admin").eq("user_id", user.id).single();
+      if (player?.is_admin) {
+        document.getElementById("admin-nav-link").innerHTML = `<a href="/admin.html" style="padding:6px 14px;border-radius:6px;color:var(--neon3);font-size:13px;font-weight:600;border:1px solid rgba(124,58,255,.3);background:rgba(124,58,255,.05);">⚙️ Admin</a>`;
       }
     }
 
