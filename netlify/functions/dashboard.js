@@ -19,7 +19,7 @@ exports.handler = async (event) => {
     // Semana activa con partidos
     const { data: activeWeek } = await supabase
       .from('weeks')
-      .select(`*, games(*, home_team:teams!games_home_team_id_fkey(*), away_team:teams!games_away_team_id_fkey(*))`)
+      .select(`*, games(id, status, game_time, home_score, away_score, home_team:teams!games_home_team_id_fkey(id, name, abbreviation, city, primary_color), away_team:teams!games_away_team_id_fkey(id, name, abbreviation, city, primary_color))`)
       .eq('is_active', true)
       .single();
 
