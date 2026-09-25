@@ -19,18 +19,19 @@ exports.handler = async (event) => {
     // Semana activa con partidos
     const { data: activeWeek } = await supabase
       .from('weeks')
-      .select(`*, games(id, status, game_time, home_score, away_score, home_team:teams!games_home_team_id_fkey(id, name, abbreviation, city, primary_color), away_team:teams!games_away_team_id_fkey(id, name, abbreviation, city, primary_color))`)
+      .select(`*, games(*, home_team:teams!games_home_team_id_fkey(*), away_team:teams!games_away_team_id_fkey(*))`)
       .eq('is_active', true)
       .single();
 
-    // Equipos que ya empezaron o terminaron esta semana (bloqueados por hora)
+    // Equipos bloqueados: partido ya empezó (por hora UTC) o ya está en vivo/final
     const now = new Date();
     let lockedTeamIds = [];
 
     if (activeWeek?.games) {
       const startedGames = activeWeek.games.filter(g => {
         const gameTime = new Date(g.game_time);
-        return gameTime <= now; // ya empezó o ya terminó
+        // Bloqueado si: ya terminó, está en vivo, O la hora del partido ya pasó
+        return g.status === 'final' || g.status === 'live' || gameTime <= now;
       });
       startedGames.forEach(g => {
         if (g.home_team_id) lockedTeamIds.push(g.home_team_id);
